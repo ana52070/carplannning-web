@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(npx tsc *)",
-      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu-22.04\\\\home\\\\chuiyu\\\\campus-nav-console\")",
-      "Bash(wsl *)"
-    ]
-  }
-}

@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Windows alternate data stream metadata
+*:Zone.Identifier
+*:SmartScreen
+
+# Claude Code local settings
+.claude/
+
+# Zip archives
+*.zip
