@@ -57,6 +57,8 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
   const onGoalSetRef = useRef(onGoalSet);
   const [mapReady, setMapReady] = useState(false);
   const [mapType, setMapType] = useState<'satellite' | 'standard'>('satellite');
+  const [followRobot, setFollowRobot] = useState(false);
+  const accuracyCircleRef = useRef<any>(null);
   const hasKey = CONFIG.AMAP_KEY.length > 0;
 
   // 保持回调 ref 最新，不触发地图重建
@@ -96,6 +98,8 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
         });
 
         map.addControl(new AMap.Scale());
+        // 用户拖拽地图时退出跟随模式
+        map.on('dragstart', () => setFollowRobot(false));
 
         map.on('click', (e: any) => {
           const { lng, lat } = e.lnglat;
@@ -120,6 +124,7 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
         trajectoryRef.current = null;
         trajectoryPointsRef.current = [];
         costmapOverlayRef.current = null;
+        accuracyCircleRef.current = null;
         setMapReady(false);
       }
     };
@@ -139,25 +144,28 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
     if (!robotMarkerRef.current) {
       // 创建小车标记 — 使用自定义 SVG
       const markerContent = document.createElement('div');
+      markerContent.style.cssText = 'position:relative;width:40px;height:40px;';
       markerContent.innerHTML = `
-        <svg width="32" height="32" viewBox="0 0 32 32" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
-          <circle cx="16" cy="16" r="12" fill="#3d8bfd" stroke="#fff" stroke-width="2" opacity="0.9"/>
-          <polygon points="16,6 22,22 16,18 10,22" fill="white" transform="rotate(${robotState.yaw}, 16, 16)"/>
+        <div class="robot-pulse-ring"></div>
+        <svg width="40" height="40" viewBox="0 0 40 40"
+             style="position:absolute;top:0;left:0;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6));">
+          <circle cx="20" cy="20" r="15" fill="#3d8bfd" stroke="white" stroke-width="2.5" opacity="0.95"/>
+          <polygon points="20,5 27,28 20,23 13,28" fill="white"
+                   transform="rotate(${robotState.yaw}, 20, 20)"/>
         </svg>
       `;
       robotMarkerRef.current = new AMap.Marker({
         position,
         content: markerContent,
-        offset: new AMap.Pixel(-16, -16),
+        offset: new AMap.Pixel(-20, -20),
         zIndex: 100,
       });
       mapInstanceRef.current.add(robotMarkerRef.current);
     } else {
       robotMarkerRef.current.setPosition(position);
-      // 更新方向
-      const svg = robotMarkerRef.current.getContent().querySelector('polygon');
-      if (svg) {
-        svg.setAttribute('transform', `rotate(${robotState.yaw}, 16, 16)`);
+      const polygon = robotMarkerRef.current.getContent().querySelector('polygon');
+      if (polygon) {
+        polygon.setAttribute('transform', `rotate(${robotState.yaw}, 20, 20)`);
       }
     }
 
@@ -176,7 +184,39 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
     } else {
       trajectoryRef.current.setPath(trajectoryPointsRef.current);
     }
-  }, [mapReady, robotState.latitude, robotState.longitude, robotState.yaw]);
+
+    // GPS 精度圆圈（cov[0]=东向方差, cov[4]=北向方差，单位 m²）
+    const cov = robotState.positionCovariance;
+    const accuracyRadius = cov.length >= 5 ? Math.sqrt(cov[0] + cov[4]) : 0;
+    if (accuracyRadius > 0) {
+      if (!accuracyCircleRef.current) {
+        accuracyCircleRef.current = new AMap.Circle({
+          center: position,
+          radius: accuracyRadius,
+          fillColor: '#3d8bfd',
+          fillOpacity: 0.1,
+          strokeColor: '#3d8bfd',
+          strokeWeight: 1,
+          strokeOpacity: 0.5,
+          zIndex: 75,
+        });
+        mapInstanceRef.current.add(accuracyCircleRef.current);
+      } else {
+        accuracyCircleRef.current.setCenter(position);
+        accuracyCircleRef.current.setRadius(accuracyRadius);
+      }
+    }
+  }, [mapReady, robotState.latitude, robotState.longitude, robotState.yaw, robotState.positionCovariance]);
+
+  // 跟随模式：followRobot 开启或 GPS 更新时自动将地图中心对准小车
+  useEffect(() => {
+    if (!mapReady || !mapInstanceRef.current || !followRobot) return;
+    if (robotState.latitude === 0 && robotState.longitude === 0) return;
+    const AMap = (window as any).AMap;
+    if (!AMap) return;
+    const [gcjLat, gcjLng] = wgs84ToGcj02(robotState.latitude, robotState.longitude);
+    mapInstanceRef.current.setCenter(new AMap.LngLat(gcjLng, gcjLat), false);
+  }, [mapReady, followRobot, robotState.latitude, robotState.longitude]);
 
   // Costmap 渲染（nav_msgs/OccupancyGrid → AMap CanvasLayer）
   useEffect(() => {
@@ -293,12 +333,19 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
     );
   }, [mapType]);
 
-  // 定位到小车
+  // 跟随按钮：点击时切换跟随模式，开启时立即定位
   const centerOnRobot = useCallback(() => {
-    if (!mapInstanceRef.current || robotState.latitude === 0) return;
-    const AMap = (window as any).AMap;
-    const [gcjLat, gcjLng] = wgs84ToGcj02(robotState.latitude, robotState.longitude);
-    mapInstanceRef.current.setCenter(new AMap.LngLat(gcjLng, gcjLat));
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    setFollowRobot((prev) => {
+      const next = !prev;
+      if (next && robotState.latitude !== 0) {
+        const AMap = (window as any).AMap;
+        const [gcjLat, gcjLng] = wgs84ToGcj02(robotState.latitude, robotState.longitude);
+        map.setCenter(new AMap.LngLat(gcjLng, gcjLat));
+      }
+      return next;
+    });
   }, [robotState.latitude, robotState.longitude]);
 
   // 缩放
@@ -397,28 +444,31 @@ export function MapView({ robotState, onGoalSet, goalPoints, costmap, onTogglePa
         {[
           { icon: ZoomIn, onClick: zoomIn, label: '放大' },
           { icon: ZoomOut, onClick: zoomOut, label: '缩小' },
-          { icon: Crosshair, onClick: centerOnRobot, label: '定位小车' },
+          { icon: Crosshair, onClick: centerOnRobot, label: followRobot ? '退出跟随' : '跟随小车', active: followRobot },
           { icon: Layers, onClick: toggleMapType, label: '切换图层' },
-          // 仅移动端显示：打开控制面板
           { icon: SlidersHorizontal, onClick: onTogglePanel, label: '控制面板', mobileOnly: true },
-        ].map(({ icon: Icon, onClick, label, mobileOnly }) => (
+        ].map(({ icon: Icon, onClick, label, mobileOnly, active }) => (
           <button
             key={label}
             onClick={onClick}
             title={label}
             className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer${mobileOnly ? ' md:hidden' : ''}`}
             style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-primary)',
-              color: 'var(--text-secondary)',
+              background: active ? 'var(--accent-blue)' : 'var(--bg-elevated)',
+              border: `1px solid ${active ? 'var(--accent-blue)' : 'var(--border-primary)'}`,
+              color: active ? 'white' : 'var(--text-secondary)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-blue)';
-              e.currentTarget.style.color = 'var(--text-primary)';
+              if (!active) {
+                e.currentTarget.style.borderColor = 'var(--accent-blue)';
+                e.currentTarget.style.color = 'var(--text-primary)';
+              }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-primary)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
+              if (!active) {
+                e.currentTarget.style.borderColor = 'var(--border-primary)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }
             }}
           >
             <Icon size={16} />

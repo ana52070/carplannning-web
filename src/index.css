@@ -52,3 +52,18 @@ body {
 .amap-container {
   background: var(--bg-secondary) !important;
 }
+
+/* Robot position marker pulse animation */
+@keyframes robot-pulse {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(3);   opacity: 0;   }
+}
+.robot-pulse-ring {
+  position: absolute;
+  top: 0; left: 0;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 2px solid #3d8bfd;
+  animation: robot-pulse 2s ease-out infinite;
+  pointer-events: none;
+}
