@@ -55,6 +55,8 @@ export interface NavSatFix {
     status: number; // -1=no fix, 0=fix, 1=sbas, 2=gbas
     service: number;
   };
+  position_covariance: number[];        // 3×3 row-major, m² (EE,EN,EU,NE,NN,NU,UE,UN,UU)
+  position_covariance_type: number;     // 0=unknown,1=approximated,2=diagonal,3=full
 }
 
 export interface Twist {
@@ -83,6 +85,7 @@ export interface RobotState {
   longitude: number;
   altitude: number;
   rtkFixType: RTKFixType;
+  positionCovariance: number[];   // 3×3 row-major covariance matrix, m²
 
   // 运动信息
   linearVelocity: number;  // m/s
@@ -123,6 +126,7 @@ export const DEFAULT_ROBOT_STATE: RobotState = {
   longitude: 0,
   altitude: 0,
   rtkFixType: 'none',
+  positionCovariance: [],
   linearVelocity: 0,
   angularVelocity: 0,
   navStatus: 'idle',

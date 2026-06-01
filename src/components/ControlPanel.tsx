@@ -274,6 +274,37 @@ export function ControlPanel({
             unit="m"
           />
         </div>
+
+        {/* GPS 位置 — 有 fix 时才显示 */}
+        {robotState.latitude !== 0 && (
+          <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
+            <DataRow
+              label="纬度"
+              value={robotState.latitude.toFixed(7)}
+              color="var(--accent-cyan)"
+            />
+            <DataRow
+              label="经度"
+              value={robotState.longitude.toFixed(7)}
+              color="var(--accent-cyan)"
+            />
+            <DataRow
+              label="海拔"
+              value={robotState.altitude.toFixed(1)}
+              unit="m"
+            />
+            {robotState.positionCovariance.length >= 5 && (
+              <DataRow
+                label="水平精度"
+                value={`±${Math.sqrt(
+                  robotState.positionCovariance[0] + robotState.positionCovariance[4]
+                ).toFixed(2)}`}
+                unit="m"
+                color="var(--text-secondary)"
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Goal Points */}

@@ -107,6 +107,7 @@ export function useROS() {
         longitude: fix.longitude,
         altitude: fix.altitude,
         rtkFixType: gpsStatusToFixType(fix.status.status),
+        positionCovariance: fix.position_covariance ?? [],
       }));
     });
 
